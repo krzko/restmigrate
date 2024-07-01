@@ -1,19 +1,23 @@
-# Go parameters
 GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOINSTALL=$(GOCMD) install
+
 BINARY_NAME=restmigrate
 BINARY_UNIX=$(BINARY_NAME)_unix
 MAIN_PATH=./cmd/restmigrate
+
+VERSION := 0.1.0-dev
+COMMIT := $(shell git rev-parse HEAD)
+DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build the project
 all: test build
 
 build:
-	$(GOBUILD) -o $(BINARY_NAME) -v $(MAIN_PATH)
+	$(GOBUILD) -ldflags="-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.Date=$(DATE)" -o $(BINARY_NAME) -v $(MAIN_PATH)
 
 # Test the project
 test:

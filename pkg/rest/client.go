@@ -1,4 +1,4 @@
-package rest
+package client
 
 import (
 	"bytes"
@@ -7,21 +7,40 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/krzko/restmigrate/internal/logger"
 )
 
-type Client struct {
-	baseURL string
-	apiKey  string
+type Client interface {
+	SendRequest(method, endpoint string, payload interface{}) error
 }
 
-func NewClient(baseURL, apiKey string) *Client {
-	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
+type baseClient struct {
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+}
+
+func NewClient(gatewayType, baseURL, apiKey string) (Client, error) {
+	base := &baseClient{
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiKey:     apiKey,
+		httpClient: &http.Client{},
+	}
+
+	switch gatewayType {
+	case "apisix":
+		return &APISIXClient{baseClient: base}, nil
+	case "kong":
+		return &KongClient{baseClient: base}, nil
+	case "generic":
+		return &GenericClient{baseClient: base}, nil
+	default:
+		return nil, fmt.Errorf("unsupported gateway type: %s", gatewayType)
 	}
 }
 
-func (c *Client) SendRequest(method, endpoint string, payload interface{}) error {
+func (c *baseClient) sendRequest(method, endpoint string, payload interface{}, headers map[string]string) error {
 	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
 
 	var body io.Reader
@@ -39,12 +58,12 @@ func (c *Client) SendRequest(method, endpoint string, payload interface{}) error
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("X-API-KEY", c.apiKey)
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	logger.Debug("Sending request", "method", method, "url", url)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
@@ -54,5 +73,39 @@ func (c *Client) SendRequest(method, endpoint string, payload interface{}) error
 		return fmt.Errorf("request failed with status code %d", resp.StatusCode)
 	}
 
+	logger.Debug("Request successful", "method", method, "url", url, "status", resp.Status)
 	return nil
+}
+
+type APISIXClient struct {
+	*baseClient
+}
+
+func (c *APISIXClient) SendRequest(method, endpoint string, payload interface{}) error {
+	headers := map[string]string{
+		"X-API-KEY": c.apiKey,
+	}
+	return c.sendRequest(method, endpoint, payload, headers)
+}
+
+type KongClient struct {
+	*baseClient
+}
+
+func (c *KongClient) SendRequest(method, endpoint string, payload interface{}) error {
+	headers := map[string]string{
+		"Kong-Admin-Token": c.apiKey,
+	}
+	return c.sendRequest(method, endpoint, payload, headers)
+}
+
+type GenericClient struct {
+	*baseClient
+}
+
+func (c *GenericClient) SendRequest(method, endpoint string, payload interface{}) error {
+	headers := map[string]string{
+		"Authorization": fmt.Sprintf("Bearer %s", c.apiKey),
+	}
+	return c.sendRequest(method, endpoint, payload, headers)
 }

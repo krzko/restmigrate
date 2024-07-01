@@ -2,6 +2,7 @@ package migration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,19 +16,20 @@ type AppliedMigration struct {
 }
 
 type State struct {
+	AppVersion        string             `json:"app_version"`
 	AppliedMigrations []AppliedMigration `json:"applied_migrations"`
 }
 
-const stateFileName = "restmigrate.state.json"
+const stateFileName = "restmigrate.state"
 
-func LoadState(path string) (*State, error) {
+func LoadState(path, appVersion string) (*State, error) {
 	stateFilePath := filepath.Join(path, stateFileName)
 	logger.Debug("Loading state file", "path", stateFilePath)
 
 	data, err := os.ReadFile(stateFilePath)
 	if os.IsNotExist(err) {
 		logger.Info("State file not found, creating new state", "path", stateFilePath)
-		return &State{}, nil
+		return &State{AppVersion: appVersion}, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -36,6 +38,16 @@ func LoadState(path string) (*State, error) {
 	err = json.Unmarshal(data, &state)
 	if err != nil {
 		return nil, err
+	}
+
+	// Update the app version if it's different
+	if state.AppVersion != appVersion {
+		logger.Info("Updating app version in state file", "old", state.AppVersion, "new", appVersion)
+		state.AppVersion = appVersion
+		err = state.Save(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update app version in state file: %w", err)
+		}
 	}
 
 	return &state, nil

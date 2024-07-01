@@ -28,9 +28,7 @@ func CreateMigration(c *cli.Context) error {
 	dateString := now.Format("20060102_150405")
 	filename := fmt.Sprintf("%s_%s.cue", dateString, name)
 
-	content := fmt.Sprintf(`// package migrations
-
-migrations: [
+	content := fmt.Sprintf(`migrations: [
     {
         timestamp: %d
         name:      "%s"
@@ -45,14 +43,8 @@ migrations: [
 `, timestamp, name)
 
 	path := c.String("path")
-	migrationsDir := filepath.Join(path, "migrations")
-	err := os.MkdirAll(migrationsDir, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to create migrations directory: %w", err)
-	}
-
-	filePath := filepath.Join(migrationsDir, filename)
-	err = os.WriteFile(filePath, []byte(content), 0644)
+	filePath := filepath.Join(path, filename)
+	err := os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create migration file: %w", err)
 	}

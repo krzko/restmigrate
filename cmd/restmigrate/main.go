@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/charmbracelet/log"
@@ -10,10 +11,23 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+var (
+	Version = "unknown"
+	Commit  = "unknown"
+	Date    = "unknown"
+)
+
 func main() {
+	executor.SetConfig(executor.Config{
+		Version: Version,
+		Commit:  Commit,
+		Date:    Date,
+	})
+
 	app := &cli.App{
-		Name:  "restmigrate",
-		Usage: "Migrate REST API configurations",
+		Name:    "restmigrate",
+		Usage:   "Migrate REST API configurations",
+		Version: VersionString(),
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "debug",
@@ -57,13 +71,20 @@ func main() {
 						Usage:   "API Key for authentication",
 						EnvVars: []string{"RESTMIGRATE_API_KEY"},
 					},
+					&cli.StringFlag{
+						Name:    "type",
+						Aliases: []string{"t"},
+						Usage:   "API gateway type (apisix, kong, generic)",
+						Value:   "generic",
+						EnvVars: []string{"RESTMIGRATE_API_TYPE"},
+					},
 				},
 				Action: executor.ExecuteUp,
 			},
 			{
 				Name:    "down",
-				Aliases: []string{"d"},
-				Usage:   "Revert migrations",
+				Aliases: []string{"d", "rollback"},
+				Usage:   "Revert migration/s",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "all",
@@ -82,6 +103,13 @@ func main() {
 						Usage:   "API Key for authentication",
 						EnvVars: []string{"RESTMIGRATE_API_KEY"},
 					},
+					&cli.StringFlag{
+						Name:    "type",
+						Aliases: []string{"t"},
+						Usage:   "API gateway type (apisix, kong, generic)",
+						Value:   "generic",
+						EnvVars: []string{"RESTMIGRATE_API_TYPE"},
+					},
 				},
 				Action: executor.ExecuteDown,
 			},
@@ -91,4 +119,8 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		logger.Logger.Fatal(err)
 	}
+}
+
+func VersionString() string {
+	return fmt.Sprintf("%s (commit: %s, built: %s)", Version, Commit, Date)
 }
