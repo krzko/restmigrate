@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,10 +10,13 @@ import (
 	"strings"
 
 	"github.com/krzko/restmigrate/internal/logger"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Client interface {
-	SendRequest(method, endpoint string, payload interface{}) error
+	SendRequest(ctx context.Context, method, endpoint string, payload interface{}) error
 }
 
 type baseClient struct {
@@ -23,9 +27,11 @@ type baseClient struct {
 
 func NewClient(gatewayType, baseURL, apiKey string) (Client, error) {
 	base := &baseClient{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
+		httpClient: &http.Client{
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		},
 	}
 
 	switch gatewayType {
@@ -40,7 +46,7 @@ func NewClient(gatewayType, baseURL, apiKey string) (Client, error) {
 	}
 }
 
-func (c *baseClient) sendRequest(method, endpoint string, payload interface{}, headers map[string]string) error {
+func (c *baseClient) sendRequest(ctx context.Context, method, endpoint string, payload interface{}, headers map[string]string) error {
 	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
 
 	var body io.Reader
@@ -52,7 +58,7 @@ func (c *baseClient) sendRequest(method, endpoint string, payload interface{}, h
 		body = bytes.NewBuffer(jsonPayload)
 	}
 
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -61,6 +67,9 @@ func (c *baseClient) sendRequest(method, endpoint string, payload interface{}, h
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+
+	// Inject traceparent header
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	logger.Debug("Sending request", "method", method, "url", url)
 	resp, err := c.httpClient.Do(req)
@@ -81,31 +90,31 @@ type APISIXClient struct {
 	*baseClient
 }
 
-func (c *APISIXClient) SendRequest(method, endpoint string, payload interface{}) error {
+func (c *APISIXClient) SendRequest(ctx context.Context, method, endpoint string, payload interface{}) error {
 	headers := map[string]string{
 		"X-API-KEY": c.apiKey,
 	}
-	return c.sendRequest(method, endpoint, payload, headers)
+	return c.sendRequest(ctx, method, endpoint, payload, headers)
 }
 
 type KongClient struct {
 	*baseClient
 }
 
-func (c *KongClient) SendRequest(method, endpoint string, payload interface{}) error {
+func (c *KongClient) SendRequest(ctx context.Context, method, endpoint string, payload interface{}) error {
 	headers := map[string]string{
 		"Kong-Admin-Token": c.apiKey,
 	}
-	return c.sendRequest(method, endpoint, payload, headers)
+	return c.sendRequest(ctx, method, endpoint, payload, headers)
 }
 
 type GenericClient struct {
 	*baseClient
 }
 
-func (c *GenericClient) SendRequest(method, endpoint string, payload interface{}) error {
+func (c *GenericClient) SendRequest(ctx context.Context, method, endpoint string, payload interface{}) error {
 	headers := map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", c.apiKey),
 	}
-	return c.sendRequest(method, endpoint, payload, headers)
+	return c.sendRequest(ctx, method, endpoint, payload, headers)
 }

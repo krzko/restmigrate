@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/krzko/restmigrate/internal/logger"
+	"github.com/krzko/restmigrate/internal/telemetry"
 )
 
 type AppliedMigration struct {
@@ -22,7 +24,10 @@ type State struct {
 
 const stateFileName = "restmigrate.state"
 
-func LoadState(path, appVersion string) (*State, error) {
+func LoadState(ctx context.Context, path, appVersion string) (*State, error) {
+	ctx, span := telemetry.StartSpan(ctx, "LoadState")
+	defer span.End()
+
 	stateFilePath := filepath.Join(path, stateFileName)
 	logger.Debug("Loading state file", "path", stateFilePath)
 

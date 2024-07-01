@@ -1,12 +1,14 @@
 package migration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/krzko/restmigrate/internal/logger"
+	"github.com/krzko/restmigrate/internal/telemetry"
 	"github.com/urfave/cli/v2"
 )
 
@@ -17,7 +19,10 @@ type Migration struct {
 	Down      map[string]interface{} `json:"down"`
 }
 
-func CreateMigration(c *cli.Context) error {
+func CreateMigration(ctx context.Context, c *cli.Context) error {
+	ctx, span := telemetry.StartSpan(ctx, "CreateMigration")
+	defer span.End()
+
 	if c.NArg() == 0 {
 		return fmt.Errorf("migration name is required")
 	}

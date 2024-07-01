@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -8,15 +9,19 @@ import (
 	"github.com/krzko/restmigrate/internal/cue"
 	"github.com/krzko/restmigrate/internal/logger"
 	"github.com/krzko/restmigrate/internal/migration"
+	"github.com/krzko/restmigrate/internal/telemetry"
 	client "github.com/krzko/restmigrate/pkg/rest"
 	"github.com/urfave/cli/v2"
 )
 
-func ExecuteUp(c *cli.Context) error {
+func ExecuteUp(ctx context.Context, c *cli.Context) error {
+	ctx, span := telemetry.StartSpan(context.Background(), "ExecuteUp")
+	defer span.End()
+
 	logger.Debug("Starting ExecuteUp")
 	path := c.String("path")
 
-	state, err := migration.LoadState(path, AppConfig.Version)
+	state, err := migration.LoadState(ctx, path, AppConfig.Version)
 	if err != nil {
 		logger.Error("Failed to load state", "error", err)
 		return fmt.Errorf("failed to load state: %w", err)
@@ -37,7 +42,7 @@ func ExecuteUp(c *cli.Context) error {
 	for _, m := range migrations {
 		if !containsMigration(state.AppliedMigrations, m.Timestamp) {
 			logger.Info("Applying migration", "name", m.Name)
-			err := applyMigration(apiClient, m.Up)
+			err := applyMigration(ctx, apiClient, m.Up)
 			if err != nil {
 				logger.Error("Failed to apply migration", "name", m.Name, "error", err)
 				return fmt.Errorf("failed to apply migration %s: %w", m.Name, err)
@@ -58,11 +63,14 @@ func ExecuteUp(c *cli.Context) error {
 	return nil
 }
 
-func ExecuteDown(c *cli.Context) error {
+func ExecuteDown(ctx context.Context, c *cli.Context) error {
+	ctx, span := telemetry.StartSpan(context.Background(), "ExecuteDown")
+	defer span.End()
+
 	logger.Debug("Starting ExecuteDown")
 	path := c.String("path")
 
-	state, err := migration.LoadState(path, AppConfig.Version)
+	state, err := migration.LoadState(ctx, path, AppConfig.Version)
 	if err != nil {
 		logger.Error("Failed to load state", "error", err)
 		return fmt.Errorf("failed to load state: %w", err)
@@ -81,14 +89,14 @@ func ExecuteDown(c *cli.Context) error {
 
 	if c.Bool("all") {
 		logger.Info("Reverting all migrations")
-		return revertAllMigrations(state, apiClient, path)
+		return revertAllMigrations(ctx, state, apiClient, path)
 	}
 
 	logger.Info("Reverting last migration")
-	return revertLastMigration(state, apiClient, path)
+	return revertLastMigration(ctx, state, apiClient, path)
 }
 
-func revertAllMigrations(state *migration.State, apiClient client.Client, path string) error {
+func revertAllMigrations(ctx context.Context, state *migration.State, apiClient client.Client, path string) error {
 	logger.Debug("Starting revertAllMigrations")
 
 	for i := len(state.AppliedMigrations) - 1; i >= 0; i-- {
@@ -100,7 +108,7 @@ func revertAllMigrations(state *migration.State, apiClient client.Client, path s
 		}
 
 		logger.Info("Reverting migration", "name", m.Name)
-		err = applyMigration(apiClient, m.Down)
+		err = applyMigration(ctx, apiClient, m.Down)
 		if err != nil {
 			logger.Error("Failed to revert migration", "name", m.Name, "error", err)
 			return fmt.Errorf("failed to revert migration %s: %w", m.Name, err)
@@ -120,7 +128,7 @@ func revertAllMigrations(state *migration.State, apiClient client.Client, path s
 	return nil
 }
 
-func revertLastMigration(state *migration.State, apiClient client.Client, path string) error {
+func revertLastMigration(ctx context.Context, state *migration.State, apiClient client.Client, path string) error {
 	logger.Debug("Starting revertLastMigration")
 
 	lastMigration := state.AppliedMigrations[len(state.AppliedMigrations)-1]
@@ -131,7 +139,7 @@ func revertLastMigration(state *migration.State, apiClient client.Client, path s
 	}
 
 	logger.Info("Reverting migration", "name", m.Name)
-	err = applyMigration(apiClient, m.Down)
+	err = applyMigration(ctx, apiClient, m.Down)
 	if err != nil {
 		logger.Error("Failed to revert migration", "name", m.Name, "error", err)
 		return fmt.Errorf("failed to revert migration %s: %w", m.Name, err)
@@ -192,7 +200,7 @@ func loadMigration(path string, timestamp int64) (*migration.Migration, error) {
 	return nil, fmt.Errorf("migration not found for timestamp %d", timestamp)
 }
 
-func applyMigration(apiClient client.Client, actions map[string]interface{}) error {
+func applyMigration(ctx context.Context, client client.Client, actions map[string]interface{}) error {
 	logger.Debug("Applying migration actions")
 
 	for endpoint, action := range actions {
@@ -214,7 +222,7 @@ func applyMigration(apiClient client.Client, actions map[string]interface{}) err
 		}
 
 		logger.Debug("Sending request", "method", method, "endpoint", endpoint)
-		err := apiClient.SendRequest(method, endpoint, body)
+		err := client.SendRequest(ctx, method, endpoint, body)
 		if err != nil {
 			logger.Error("Failed to apply action", "endpoint", endpoint, "error", err)
 			return fmt.Errorf("failed to apply action for endpoint %s: %w", endpoint, err)
