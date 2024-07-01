@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -17,7 +18,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -37,53 +37,59 @@ type OtelConfig struct {
 func parseOtelConfig() OtelConfig {
 	config := OtelConfig{}
 	config.endpoint = os.Getenv(OtelEndpointEnvVar)
-	insecure, err := strconv.ParseBool(os.Getenv(OtelInsecureEnvVar))
-	if err != nil {
-		insecure = true
+	if config.endpoint == "" {
+		config.endpoint = "localhost:4317" // Default endpoint
 	}
-	config.insecure = insecure
-
-	sdkDisabled, err := strconv.ParseBool(os.Getenv(OtelSDKDisabledEnvVar))
-	if err != nil {
-		sdkDisabled = false
-	}
-	config.sdkDisabled = sdkDisabled
-
+	config.insecure, _ = strconv.ParseBool(os.Getenv(OtelInsecureEnvVar))
+	config.sdkDisabled, _ = strconv.ParseBool(os.Getenv(OtelSDKDisabledEnvVar))
 	return config
 }
 
-func getTraceExporter(ctx context.Context) (*otlptrace.Exporter, error) {
-	otelConfig := parseOtelConfig()
-	if otelConfig.endpoint == "" {
-		logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set, skipping OpenTelemetry tracing")
-		return nil, nil
-	}
+func getTraceExporter(ctx context.Context, config OtelConfig) (*otlptrace.Exporter, error) {
+	logger.Debug("Initialising trace exporter", "endpoint", config.endpoint, "insecure", config.insecure)
 
-	grpcOpts := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(otelConfig.endpoint),
-		otlptracegrpc.WithDialOption(grpc.WithBlock()),
-	}
-
-	if otelConfig.insecure {
-		grpcOpts = append(grpcOpts, otlptracegrpc.WithInsecure())
+	var secureOption otlptracegrpc.Option
+	if config.insecure {
+		secureOption = otlptracegrpc.WithInsecure()
 	} else {
-		grpcOpts = append(grpcOpts, otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, "")))
+		secureOption = otlptracegrpc.WithTLSCredentials(nil)
 	}
 
-	return otlptracegrpc.New(ctx, grpcOpts...)
+	retryConfig := otlptracegrpc.RetryConfig{
+		Enabled:         true,
+		InitialInterval: 500 * time.Millisecond,
+		MaxInterval:     5 * time.Second,
+		MaxElapsedTime:  30 * time.Second,
+	}
+
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(config.endpoint),
+		secureOption,
+		otlptracegrpc.WithDialOption(grpc.WithDisableServiceConfig()),
+		otlptracegrpc.WithRetry(retryConfig),
+		otlptracegrpc.WithTimeout(10*time.Second),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create exporter: %w", err)
+	}
+
+	logger.Debug("Trace exporter initialised successfully")
+	return exporter, nil
 }
 
 func InitTracer(serviceName, environment string, attributes map[string]string) (func(context.Context) error, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	otelConfig := parseOtelConfig()
+	config := parseOtelConfig()
 
-	if otelConfig.sdkDisabled {
-		logger.Info("OpenTelemetry", "status", "disabled")
+	if config.sdkDisabled {
+		logger.Info("OpenTelemetry SDK is disabled")
 		tracer = trace.NewNoopTracerProvider().Tracer(serviceName)
 		return func(context.Context) error { return nil }, nil
 	}
+
+	logger.Info("Initialising OpenTelemetry", "endpoint", config.endpoint)
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -92,54 +98,70 @@ func InitTracer(serviceName, environment string, attributes map[string]string) (
 		),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
 	for k, v := range attributes {
 		res, _ = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attribute.String(k, v)))
 	}
 
+	var exporter *otlptrace.Exporter
+	exporterInitCh := make(chan error, 1)
+	go func() {
+		var err error
+		exporter, err = getTraceExporter(ctx, config)
+		exporterInitCh <- err
+	}()
+
+	select {
+	case err := <-exporterInitCh:
+		if err != nil {
+			logger.Error("Failed to initialise exporter", "error", err)
+			return nil, err
+		}
+	case <-time.After(20 * time.Second):
+		logger.Warn("Exporter initialization timed out, continuing with a noop exporter")
+		exporter = otlptrace.NewUnstarted(nil)
+	}
+
+	// Use SimpleSpanProcessor instead of BatchSpanProcessor
+	ssp := sdktrace.NewSimpleSpanProcessor(exporter)
+
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(ssp),
 	)
-
-	traceExporter, err := getTraceExporter(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if traceExporter != nil {
-		bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
-		tracerProvider.RegisterSpanProcessor(bsp)
-	}
 
 	otel.SetTracerProvider(tracerProvider)
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
 
 	tracer = tracerProvider.Tracer(serviceName)
 
-	logger.Info("OpenTelemetry", "status", "enabled")
+	logger.Info("OpenTelemetry initialised successfully")
 
 	return func(ctx context.Context) error {
-		if ctx.Err() != nil {
-			ctxWithTimeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			ctx = ctxWithTimeout
+		logger.Debug("Shutting down OpenTelemetry")
+
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+			logger.Error("Error shutting down tracer provider", "error", err)
+		} else {
+			logger.Debug("Tracer provider shut down successfully")
 		}
 
-		err := tracerProvider.Shutdown(ctx)
-		if err != nil {
-			logger.Error("Error shutting down trace provider", "error", err)
-		}
-
-		if traceExporter != nil {
-			if err = traceExporter.Shutdown(ctx); err != nil {
-				logger.Error("Error shutting down trace exporter", "error", err)
+		if exporter != nil {
+			if err := exporter.Shutdown(shutdownCtx); err != nil {
+				logger.Error("Error shutting down exporter", "error", err)
+			} else {
+				logger.Debug("Exporter shut down successfully")
 			}
 		}
 
-		return err
+		logger.Debug("OpenTelemetry shut down process completed")
+		return nil
 	}, nil
 }
 

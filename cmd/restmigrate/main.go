@@ -48,17 +48,21 @@ func main() {
 			var err error
 			shutdownTelemetry, err = telemetry.InitTracer("restmigrate", os.Getenv("DEPLOYMENT_ENVIRONMENT"), nil)
 			if err != nil {
-				return fmt.Errorf("failed to initialize telemetry: %w", err)
+				logger.Error("Failed to initialise telemetry", "error", err)
 			}
 
 			return nil
 		},
 		After: func(cliCtx *cli.Context) error {
 			if shutdownTelemetry != nil {
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 				defer cancel()
+
+				logger.Debug("Starting telemetry shutdown")
 				if err := shutdownTelemetry(shutdownCtx); err != nil {
 					logger.Error("Failed to shutdown telemetry", "error", err)
+				} else {
+					logger.Debug("Telemetry shutdown completed")
 				}
 			}
 			return nil
