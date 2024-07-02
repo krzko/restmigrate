@@ -9,6 +9,16 @@
 - [CUE](https://cuelang.org/) language for defining migrations
 - [OpenTelemetry](https://opentelemetry.io/) traces integration for observability
 
+### OpenTelemetry
+
+`restmigrate` supports OpenTelemetry for distributed tracing, follow the [configuration](#configuration) section to enable it.
+
+<img
+  src="/assets/images/trace.png"
+  alt="Distributed trace"
+  title="Distributed trace"
+  style="display: inline-block; margin: 0 auto; max-width: 300px">
+
 ## Installation
 
 To install RestMigrate, make sure you have Go installed on your system, then run:
