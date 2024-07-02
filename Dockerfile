@@ -5,12 +5,9 @@ ARG DATE=unknown
 ARG VERSION=unknown
 WORKDIR /app
 ADD go.mod go.sum ./
-RUN go mod download
-RUN go mod verify
+# RUN go mod verify
 ADD . .
-RUN go build -ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.Date=$(DATE)" \
-    -o restmigrate \
-    ./cmd/restmigrate
+RUN go build -ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.Date=$(DATE)" -o restmigrate -v ./cmd/restmigrate
 
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
