@@ -49,7 +49,7 @@ func LoadState(ctx context.Context, path, appVersion string) (*State, error) {
 	if state.AppVersion != appVersion {
 		logger.Info("Updating app version in state file", "old", state.AppVersion, "new", appVersion)
 		state.AppVersion = appVersion
-		err = state.Save(path)
+		err = state.SaveState(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update app version in state file: %w", err)
 		}
@@ -58,7 +58,10 @@ func LoadState(ctx context.Context, path, appVersion string) (*State, error) {
 	return &state, nil
 }
 
-func (s *State) Save(path string) error {
+func (s *State) SaveState(ctx context.Context, path string) error {
+	_, span := telemetry.StartSpan(ctx, "SaveState")
+	defer span.End()
+
 	stateFilePath := filepath.Join(path, stateFileName)
 	logger.Debug("Saving state file", "path", stateFilePath)
 

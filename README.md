@@ -5,9 +5,9 @@
 ## Features
 
 - Create, apply, and revert REST API configuration changes
-- Use CUE language for flexible and type-safe configuration definitions
-- Track applied migrations with a local state file
-- CLI interface for easy usage
+- Support for multiple API gateways or generic API endpoints (e.g., Kong, APISIX, Generic)
+- [CUE](https://cuelang.org/) language for defining migrations
+- [OpenTelemetry](https://opentelemetry.io/) traces integration for observability
 
 ## Installation
 
@@ -16,6 +16,21 @@ To install RestMigrate, make sure you have Go installed on your system, then run
 ```bash
 go install github.com/krzo/restmigrate/cmd/restmigrate@latest
 ```
+
+## Commands
+
+* `create`: Create a new migration file
+* `up`: Apply pending migrations
+* `down`: Revert the last applied migration (use `--all` to revert all)
+* `list`: Display applied migrations
+
+## Configuration
+
+Set these environment variables to configure `restmigrate`:
+
+* `OTEL_EXPORTER_OTLP_ENDPOINT`: OpenTelemetry exporter endpoint
+* `OTEL_EXPORTER_OTLP_INSECURE`: Set to "true" for insecure connection
+* `OTEL_SDK_ENABLED`: Set to "true" to enable OpenTelemetry (disabled by default)
 
 ## Usage
 
@@ -31,10 +46,10 @@ This will create a new CUE file in the `migrations` directory with a timestamp p
 
 ### Applying migrations
 
-To apply all pending migrations:
+To apply all pending migrations, `--token` and `--type` are optional if the API does not require authentication:
 
 ```bash
-restmigrate up --url <api_base_url> --token <api_token>
+restmigrate up --url <api_base_url> --token <api_token> --type <type>
 ```
 
 ### Reverting the last migration
@@ -42,7 +57,7 @@ restmigrate up --url <api_base_url> --token <api_token>
 To revert the most recently applied migration:
 
 ```bash
-restmigrate down --url <api_base_url> --token <api_token>
+restmigrate down --url <api_base_url> --token <api_token> --type <type>
 ```
 
 ## Migration File Format

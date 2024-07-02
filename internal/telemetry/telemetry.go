@@ -42,7 +42,11 @@ func parseOtelConfig() OtelConfig {
 		config.endpoint = "localhost:4317" // Default endpoint
 	}
 	config.insecure, _ = strconv.ParseBool(os.Getenv(OtelInsecureEnvVar))
-	config.sdkDisabled, _ = strconv.ParseBool(os.Getenv(OtelSDKDisabledEnvVar))
+
+	// Telemetry disabled by default
+	sdkEnabled, _ := strconv.ParseBool(os.Getenv("OTEL_SDK_ENABLED"))
+	config.sdkDisabled = !sdkEnabled
+
 	return config
 }
 
@@ -85,7 +89,7 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 	config := parseOtelConfig()
 
 	if config.sdkDisabled {
-		logger.Info("OpenTelemetry SDK is disabled")
+		logger.Info("OpenTelemetry", "status", "disabled")
 		tracer = trace.NewNoopTracerProvider().Tracer(serviceName)
 		return func(context.Context) error { return nil }, nil
 	}
@@ -96,16 +100,6 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect environment: %w", err)
 	}
-
-	// res, err := resource.New(ctx,
-	// 	resource.WithAttributes(
-	// 		semconv.ServiceNameKey.String(serviceName),
-	// 		attribute.String("deployment.environment", environment),
-	// 	),
-	// )
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to create resource: %w", err)
-	// }
 
 	for k, v := range attributes {
 		res, _ = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attribute.String(k, v)))
@@ -144,7 +138,7 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 
 	tracer = tracerProvider.Tracer(serviceName)
 
-	logger.Info("OpenTelemetry initialised successfully")
+	logger.Info("OpenTelemetry", "status", "enabled")
 
 	return func(ctx context.Context) error {
 		logger.Debug("Shutting down OpenTelemetry")
@@ -171,9 +165,10 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 	}, nil
 }
 
-func SetSpanStatus(span trace.Span, err error) {
+func SetSpanStatus(span trace.Span, err error, attrs ...attribute.KeyValue) {
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(attrs...)
 	} else {
 		span.SetStatus(codes.Ok, "")
 	}

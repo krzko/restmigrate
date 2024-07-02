@@ -52,7 +52,7 @@ func main() {
 			if err != nil {
 				logger.Error("Failed to initialise telemetry", "error", err)
 			} else {
-				logger.Info("Telemetry initialised successfully")
+				logger.Debug("Telemetry initialised successfully")
 			}
 
 			return nil
@@ -77,34 +77,6 @@ func main() {
 				Aliases: []string{"c"},
 				Usage:   "Create a new migration",
 				Action:  wrapActionWithTelemetry(migration.CreateMigration),
-			},
-			{
-				Name:    "up",
-				Aliases: []string{"u"},
-				Usage:   "Apply all pending migrations",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "base-url",
-						Aliases:  []string{"u"},
-						Usage:    "Base URL for the API",
-						EnvVars:  []string{"RESTMIGRATE_BASE_URL"},
-						Required: true,
-					},
-					&cli.StringFlag{
-						Name:    "api-key",
-						Aliases: []string{"k"},
-						Usage:   "API Key for authentication",
-						EnvVars: []string{"RESTMIGRATE_API_KEY"},
-					},
-					&cli.StringFlag{
-						Name:    "type",
-						Aliases: []string{"t"},
-						Usage:   "API gateway type (apisix, kong, generic)",
-						Value:   "generic",
-						EnvVars: []string{"RESTMIGRATE_API_TYPE"},
-					},
-				},
-				Action: wrapActionWithTelemetry(executor.ExecuteUp),
 			},
 			{
 				Name:    "down",
@@ -137,6 +109,48 @@ func main() {
 					},
 				},
 				Action: wrapActionWithTelemetry(executor.ExecuteDown),
+			},
+			{
+				Name:    "list",
+				Aliases: []string{"l"},
+				Usage:   "List all applied migrations",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "path",
+						Aliases: []string{"p"},
+						Usage:   "Path to migrations directory",
+						Value:   ".",
+					},
+				},
+				Action: wrapActionWithTelemetry(executor.ListMigrations),
+			},
+			{
+				Name:    "up",
+				Aliases: []string{"u"},
+				Usage:   "Apply all pending migrations",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "base-url",
+						Aliases:  []string{"u"},
+						Usage:    "Base URL for the API",
+						EnvVars:  []string{"RESTMIGRATE_BASE_URL"},
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:    "api-key",
+						Aliases: []string{"k"},
+						Usage:   "API Key for authentication",
+						EnvVars: []string{"RESTMIGRATE_API_KEY"},
+					},
+					&cli.StringFlag{
+						Name:    "type",
+						Aliases: []string{"t"},
+						Usage:   "API gateway type (apisix, kong, generic)",
+						Value:   "generic",
+						EnvVars: []string{"RESTMIGRATE_API_TYPE"},
+					},
+				},
+				Action: wrapActionWithTelemetry(executor.ExecuteUp),
 			},
 		},
 	}

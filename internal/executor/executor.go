@@ -3,14 +3,18 @@ package executor
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/krzko/restmigrate/internal/cue"
 	"github.com/krzko/restmigrate/internal/logger"
 	"github.com/krzko/restmigrate/internal/migration"
 	"github.com/krzko/restmigrate/internal/telemetry"
+	"github.com/krzko/restmigrate/pkg/rest"
 	client "github.com/krzko/restmigrate/pkg/rest"
+	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 )
 
@@ -48,7 +52,7 @@ func ExecuteUp(ctx context.Context, c *cli.Context) error {
 				return fmt.Errorf("failed to apply migration %s: %w", m.Name, err)
 			}
 			state.AddMigration(m.Timestamp, m.Name)
-			err = state.Save(path)
+			err = state.SaveState(ctx, path)
 			if err != nil {
 				logger.Error("Failed to save state", "error", err)
 				return fmt.Errorf("failed to save state: %w", err)
@@ -96,6 +100,44 @@ func ExecuteDown(ctx context.Context, c *cli.Context) error {
 	return revertLastMigration(ctx, state, apiClient, path)
 }
 
+func ListMigrations(ctx context.Context, c *cli.Context) error {
+	ctx, span := telemetry.StartSpan(ctx, "ListMigrations")
+	defer span.End()
+
+	logger.Debug("Starting ListMigrations")
+	path := c.String("path")
+
+	state, err := migration.LoadState(ctx, path, AppConfig.Version)
+	if err != nil {
+		logger.Error("Failed to load state", "error", err)
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	if len(state.AppliedMigrations) == 0 {
+		logger.Info("No migrations have been applied")
+		return nil
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Timestamp", "Date", "Name"})
+	table.SetBorder(false)
+	table.SetColumnSeparator(" ")
+
+	for _, m := range state.AppliedMigrations {
+		date := time.Unix(m.Timestamp, 0).Format("2006-01-02 15:04:05")
+		table.Append([]string{
+			fmt.Sprintf("%d", m.Timestamp),
+			date,
+			m.Name,
+		})
+	}
+
+	logger.Info(fmt.Sprintf("Applied migrations (%d):", len(state.AppliedMigrations)))
+	table.Render()
+
+	return nil
+}
+
 func revertAllMigrations(ctx context.Context, state *migration.State, apiClient client.Client, path string) error {
 	logger.Debug("Starting revertAllMigrations")
 
@@ -115,7 +157,7 @@ func revertAllMigrations(ctx context.Context, state *migration.State, apiClient 
 		}
 
 		state.RemoveLastMigration()
-		err = state.Save(path)
+		err = state.SaveState(ctx, path)
 		if err != nil {
 			logger.Error("Failed to save state", "error", err)
 			return fmt.Errorf("failed to save state: %w", err)
@@ -146,7 +188,7 @@ func revertLastMigration(ctx context.Context, state *migration.State, apiClient 
 	}
 
 	state.RemoveLastMigration()
-	err = state.Save(path)
+	err = state.SaveState(ctx, path)
 	if err != nil {
 		logger.Error("Failed to save state", "error", err)
 		return fmt.Errorf("failed to save state: %w", err)
@@ -221,19 +263,18 @@ func applyMigration(ctx context.Context, client client.Client, actions map[strin
 			body = bodyData
 		}
 
-		spanName := fmt.Sprintf("%s %s", method, endpoint)
-		ctx, span := telemetry.StartSpan(ctx, spanName)
-		defer span.End()
-
-		logger.Debug("Sending request", "method", method, "endpoint", endpoint)
 		err := client.SendRequest(ctx, method, endpoint, body)
 		if err != nil {
-			logger.Error("Failed to apply action", "endpoint", endpoint, "error", err)
-			telemetry.SetSpanStatus(span, err)
+			if errorResp, ok := err.(*rest.ErrorResponse); ok {
+				logger.Error("Failed to apply action",
+					"endpoint", endpoint,
+					"status", errorResp.StatusCode,
+					"response", errorResp.Body)
+			} else {
+				logger.Error("Failed to apply action", "endpoint", endpoint, "error", err)
+			}
 			return fmt.Errorf("failed to apply action for endpoint %s: %w", endpoint, err)
 		}
-		telemetry.SetSpanStatus(span, nil)
-		logger.Debug("Successfully applied action", "endpoint", endpoint)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ go 1.22.3
 require (
 	cuelang.org/go v0.9.2
 	github.com/charmbracelet/log v0.4.0
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/urfave/cli/v2 v2.27.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.52.0
 	go.opentelemetry.io/contrib/propagators/autoprop v0.52.0
