@@ -21,11 +21,17 @@
 
 ## Installation
 
-To install RestMigrate, make sure you have Go installed on your system, then run:
+### brew
 
-```bash
-go install github.com/krzo/restmigrate/cmd/restmigrate@latest
+Install [brew](https://brew.sh/) and then run:
+
+```sh
+brew install krzko/tap/restmigrate
 ```
+
+### Download Binary
+
+Download the latest version from the [Releases](https://github.com/krzko/restmigrate/releases) page.
 
 ## Commands
 
