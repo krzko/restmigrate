@@ -1,4 +1,5 @@
-# .goreleaser.yml
+version: 2
+
 before:
   hooks:
     - go mod tidy
@@ -88,7 +89,7 @@ changelog:
 
 brews:
   - name: restmigrate
-    tap:
+    repository:
       owner: 'krzko'
       name: 'homebrew-tap'
     homepage: https://github.com/krzko/restmigrate
