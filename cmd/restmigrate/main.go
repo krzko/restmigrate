@@ -14,6 +14,8 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+const appName = "restmigrate"
+
 var (
 	Version = "unknown"
 	Commit  = "unknown"
@@ -25,7 +27,7 @@ func main() {
 	var shutdownTelemetry func(context.Context) error
 
 	app := &cli.App{
-		Name:    "restmigrate",
+		Name:    appName,
 		Usage:   "Migrate REST API configurations",
 		Version: VersionString(),
 		Flags: []cli.Flag{
@@ -46,9 +48,11 @@ func main() {
 			}
 
 			var err error
-			shutdownTelemetry, err = telemetry.InitTracer("restmigrate", os.Getenv("DEPLOYMENT_ENVIRONMENT"), nil)
+			shutdownTelemetry, err = telemetry.InitTracer("restmigrate", nil)
 			if err != nil {
 				logger.Error("Failed to initialise telemetry", "error", err)
+			} else {
+				logger.Info("Telemetry initialised successfully")
 			}
 
 			return nil
@@ -154,7 +158,8 @@ func VersionString() string {
 
 func wrapActionWithTelemetry(f func(context.Context, *cli.Context) error) cli.ActionFunc {
 	return func(c *cli.Context) error {
-		ctx, span := telemetry.StartSpan(c.Context, c.Command.Name)
+		commandName := fmt.Sprintf("%s %s", appName, c.Command.Name)
+		ctx, span := telemetry.StartSpan(c.Context, commandName)
 		defer span.End()
 		return f(ctx, c)
 	}

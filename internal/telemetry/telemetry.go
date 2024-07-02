@@ -11,11 +11,12 @@ import (
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 )
@@ -77,7 +78,7 @@ func getTraceExporter(ctx context.Context, config OtelConfig) (*otlptrace.Export
 	return exporter, nil
 }
 
-func InitTracer(serviceName, environment string, attributes map[string]string) (func(context.Context) error, error) {
+func InitTracer(serviceName string, attributes map[string]string) (func(context.Context) error, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -91,15 +92,20 @@ func InitTracer(serviceName, environment string, attributes map[string]string) (
 
 	logger.Info("Initialising OpenTelemetry", "endpoint", config.endpoint)
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(serviceName),
-			attribute.String("deployment.environment", environment),
-		),
-	)
+	res, err := DetectEnvironment()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return nil, fmt.Errorf("failed to detect environment: %w", err)
 	}
+
+	// res, err := resource.New(ctx,
+	// 	resource.WithAttributes(
+	// 		semconv.ServiceNameKey.String(serviceName),
+	// 		attribute.String("deployment.environment", environment),
+	// 	),
+	// )
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create resource: %w", err)
+	// }
 
 	for k, v := range attributes {
 		res, _ = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attribute.String(k, v)))
@@ -163,6 +169,14 @@ func InitTracer(serviceName, environment string, attributes map[string]string) (
 		logger.Debug("OpenTelemetry shut down process completed")
 		return nil
 	}, nil
+}
+
+func SetSpanStatus(span trace.Span, err error) {
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
 }
 
 func StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {

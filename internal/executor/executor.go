@@ -15,7 +15,7 @@ import (
 )
 
 func ExecuteUp(ctx context.Context, c *cli.Context) error {
-	ctx, span := telemetry.StartSpan(context.Background(), "ExecuteUp")
+	ctx, span := telemetry.StartSpan(ctx, "ExecuteUp")
 	defer span.End()
 
 	logger.Debug("Starting ExecuteUp")
@@ -64,7 +64,7 @@ func ExecuteUp(ctx context.Context, c *cli.Context) error {
 }
 
 func ExecuteDown(ctx context.Context, c *cli.Context) error {
-	ctx, span := telemetry.StartSpan(context.Background(), "ExecuteDown")
+	ctx, span := telemetry.StartSpan(ctx, "ExecuteDown")
 	defer span.End()
 
 	logger.Debug("Starting ExecuteDown")
@@ -221,12 +221,18 @@ func applyMigration(ctx context.Context, client client.Client, actions map[strin
 			body = bodyData
 		}
 
+		spanName := fmt.Sprintf("%s %s", method, endpoint)
+		ctx, span := telemetry.StartSpan(ctx, spanName)
+		defer span.End()
+
 		logger.Debug("Sending request", "method", method, "endpoint", endpoint)
 		err := client.SendRequest(ctx, method, endpoint, body)
 		if err != nil {
 			logger.Error("Failed to apply action", "endpoint", endpoint, "error", err)
+			telemetry.SetSpanStatus(span, err)
 			return fmt.Errorf("failed to apply action for endpoint %s: %w", endpoint, err)
 		}
+		telemetry.SetSpanStatus(span, nil)
 		logger.Debug("Successfully applied action", "endpoint", endpoint)
 	}
 	return nil
