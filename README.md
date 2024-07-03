@@ -14,7 +14,7 @@
 `restmigrate` supports OpenTelemetry for distributed tracing, follow the [configuration](#configuration) section to enable it.
 
 <img
-  src="/assets/images/trace.png"
+  src="/assets/images/trace-dark.png"
   alt="Distributed trace"
   title="Distributed trace"
   style="display: inline-block; margin: 0 auto; max-width: 300px">
