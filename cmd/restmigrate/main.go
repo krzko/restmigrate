@@ -44,7 +44,7 @@ func main() {
 		},
 		Before: func(cliCtx *cli.Context) error {
 			if cliCtx.Bool("debug") {
-				logger.SetLevel(log.DebugLevel)
+				logger.GetLogger().SetLevel(log.DebugLevel)
 			}
 
 			var err error
@@ -162,7 +162,7 @@ func main() {
 	})
 
 	if err := app.RunContext(ctx, os.Args); err != nil {
-		logger.Logger.Fatal(err)
+		logger.Fatal("Failed to run application", "error", err)
 	}
 }
 

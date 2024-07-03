@@ -29,6 +29,11 @@ const (
 
 var tracer trace.Tracer
 
+type exporterResult struct {
+	exporter *otlptrace.Exporter
+	err      error
+}
+
 type OtelConfig struct {
 	endpoint    string
 	insecure    bool
@@ -89,13 +94,44 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 	config := parseOtelConfig()
 
 	if config.sdkDisabled {
-		logger.Info("OpenTelemetry", "status", "disabled")
-		tracer = trace.NewNoopTracerProvider().Tracer(serviceName)
-		return func(context.Context) error { return nil }, nil
+		return setupNoopTracer(serviceName)
 	}
 
+	return setupActiveTracer(ctx, serviceName, attributes, config)
+}
+
+func setupNoopTracer(serviceName string) (func(context.Context) error, error) {
+	logger.Info("OpenTelemetry", "status", "disabled")
+	tracer = trace.NewNoopTracerProvider().Tracer(serviceName)
+	return func(context.Context) error { return nil }, nil
+}
+
+func setupActiveTracer(ctx context.Context, serviceName string, attributes map[string]string, config OtelConfig) (func(context.Context) error, error) {
 	logger.Info("Initialising OpenTelemetry", "endpoint", config.endpoint)
 
+	res, err := setupResource(attributes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup resource: %w", err)
+	}
+
+	exporter, err := setupExporter(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+
+	tracerProvider := setupTracerProvider(res, exporter)
+
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
+
+	tracer = tracerProvider.Tracer(serviceName)
+
+	logger.Info("OpenTelemetry", "status", "enabled")
+
+	return createShutdownFunction(tracerProvider, exporter), nil
+}
+
+func setupResource(attributes map[string]string) (*resource.Resource, error) {
 	res, err := DetectEnvironment()
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect environment: %w", err)
@@ -105,41 +141,38 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 		res, _ = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attribute.String(k, v)))
 	}
 
-	var exporter *otlptrace.Exporter
-	exporterInitCh := make(chan error, 1)
+	return res, nil
+}
+
+func setupExporter(ctx context.Context, config OtelConfig) (*otlptrace.Exporter, error) {
+	exporterChan := make(chan exporterResult)
 	go func() {
-		var err error
-		exporter, err = getTraceExporter(ctx, config)
-		exporterInitCh <- err
+		exporter, err := getTraceExporter(ctx, config)
+		exporterChan <- exporterResult{exporter, err}
 	}()
 
 	select {
-	case err := <-exporterInitCh:
-		if err != nil {
-			logger.Error("Failed to initialise exporter", "error", err)
-			return nil, err
+	case result := <-exporterChan:
+		if result.err != nil {
+			logger.Error("Failed to initialise exporter", "error", result.err)
+			return nil, result.err
 		}
+		return result.exporter, nil
 	case <-time.After(20 * time.Second):
 		logger.Warn("Exporter initialization timed out, continuing with a noop exporter")
-		exporter = otlptrace.NewUnstarted(nil)
+		return otlptrace.NewUnstarted(nil), nil
 	}
+}
 
-	// Use SimpleSpanProcessor instead of BatchSpanProcessor
-	ssp := sdktrace.NewSimpleSpanProcessor(exporter)
-
-	tracerProvider := sdktrace.NewTracerProvider(
+func setupTracerProvider(res *resource.Resource, exporter *otlptrace.Exporter) *sdktrace.TracerProvider {
+	return sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithSpanProcessor(ssp),
+		sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exporter)),
 	)
+}
 
-	otel.SetTracerProvider(tracerProvider)
-	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
-
-	tracer = tracerProvider.Tracer(serviceName)
-
-	logger.Info("OpenTelemetry", "status", "enabled")
-
+func createShutdownFunction(tracerProvider *sdktrace.TracerProvider, exporter *otlptrace.Exporter) func(context.Context) error {
 	return func(ctx context.Context) error {
 		logger.Debug("Shutting down OpenTelemetry")
 
@@ -162,7 +195,7 @@ func InitTracer(serviceName string, attributes map[string]string) (func(context.
 
 		logger.Debug("OpenTelemetry shut down process completed")
 		return nil
-	}, nil
+	}
 }
 
 func SetSpanStatus(span trace.Span, err error, attrs ...attribute.KeyValue) {

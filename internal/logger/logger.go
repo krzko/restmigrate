@@ -2,40 +2,52 @@ package logger
 
 import (
 	"os"
+	"sync"
 
 	"github.com/charmbracelet/log"
 )
 
-var Logger *log.Logger
-
-func init() {
-	Logger = log.NewWithOptions(os.Stderr, log.Options{
-		// ReportCaller:    true,
-		ReportTimestamp: true,
-		Level:           log.InfoLevel,
-	})
+type Logger struct {
+	*log.Logger
 }
 
-func SetLevel(level log.Level) {
-	Logger.SetLevel(level)
+var (
+	instance *Logger
+	once     sync.Once
+)
+
+func GetLogger() *Logger {
+	once.Do(func() {
+		instance = &Logger{
+			Logger: log.NewWithOptions(os.Stderr, log.Options{
+				ReportTimestamp: true,
+				Level:           log.InfoLevel,
+			}),
+		}
+	})
+	return instance
+}
+
+func (l *Logger) SetLevel(level log.Level) {
+	l.Logger.SetLevel(level)
 }
 
 func Debug(msg interface{}, keyvals ...interface{}) {
-	Logger.Debug(msg, keyvals...)
+	GetLogger().Debug(msg, keyvals...)
 }
 
 func Info(msg interface{}, keyvals ...interface{}) {
-	Logger.Info(msg, keyvals...)
+	GetLogger().Info(msg, keyvals...)
 }
 
 func Warn(msg interface{}, keyvals ...interface{}) {
-	Logger.Warn(msg, keyvals...)
+	GetLogger().Warn(msg, keyvals...)
 }
 
 func Error(msg interface{}, keyvals ...interface{}) {
-	Logger.Error(msg, keyvals...)
+	GetLogger().Error(msg, keyvals...)
 }
 
 func Fatal(msg interface{}, keyvals ...interface{}) {
-	Logger.Fatal(msg, keyvals...)
+	GetLogger().Fatal(msg, keyvals...)
 }
