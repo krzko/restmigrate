@@ -81,8 +81,6 @@ restmigrate down --url <api_base_url> --token <api_token> --type <type>
 Migration files are written in CUE and should follow this structure:
 
 ```cue
-package migrations
-
 migration: {
     timestamp: 1625097600  // Unix timestamp
     name:      "add_new_endpoint"
@@ -101,6 +99,10 @@ migration: {
     }
 }
 ```
+
+The `up` and `down` fields define the changes to be applied and reverted, respectively. The `timestamp` field is used to track the order of migrations.
+
+Examples of migration files can be found in the [examples](/examples/) directory.
 
 ## Development
 
